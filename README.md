@@ -207,6 +207,14 @@ y el contenedor ve los dispositivos nuevos al reiniciar el servicio.
 - Actualizar código: `git pull && docker compose up -d --build`.
 - Autoarranque: Docker ya está configurado para iniciar al bootear; el
   servicio usa `restart: unless-stopped`.
+- **Rotar el `API_TOKEN`** (si se filtró o por higiene):
+  ```bash
+  sed -i "s|^API_TOKEN=.*|API_TOKEN=$(openssl rand -hex 24)|" .env
+  docker compose up -d --force-recreate api
+  grep API_TOKEN .env
+  ```
+  Usa `up -d --force-recreate`, **no** `restart` — `restart` no relee el
+  archivo `.env`.
 - Acceso remoto seguro: si vas a exponer el puerto 8000 fuera de la LAN,
   ponlo detrás de un Cloudflare Tunnel o un reverse proxy con TLS
   (Caddy/Traefik) en vez de abrirlo directo a internet.

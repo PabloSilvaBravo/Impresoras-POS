@@ -51,49 +51,50 @@ Si `impresoras.local` no resuelve:
 
 ---
 
-## 2. Clonar el repo y ejecutar el bootstrap
+## 2. Instalar todo con un solo comando
 
 Dentro de la Pi (por SSH):
 
 ```bash
-sudo apt-get update && sudo apt-get -y install git
-git clone https://github.com/PabloSilvaBravo/Impresoras-POS.git
-cd Impresoras-POS
-./scripts/bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/PabloSilvaBravo/Impresoras-POS/main/scripts/install.sh | bash
 ```
 
-El script hará:
+Este one-liner:
 
-- `apt upgrade` básico e instala `curl`, `git`, `usbutils`.
-- Instala Docker Engine + Compose (oficial).
-- Agrega tu usuario al grupo `docker`.
-- Carga el módulo del kernel `usblp` (crea `/dev/usb/lp0`, `/dev/usb/lp1`, …).
-- Instala una regla udev con permisos para impresoras USB.
-- Copia `.env.example` → `.env` y `api/config/printers.example.yml` →
-  `api/config/printers.yml`.
+- Instala `git` si falta y clona el repo en `~/Impresoras-POS`.
+- Lanza `scripts/bootstrap.sh`, que:
+  - Hace `apt update` e instala `curl`, `gnupg`, `usbutils`, `openssl`.
+  - Instala Docker Engine + Compose (oficial) y te agrega al grupo `docker`.
+  - Carga el módulo del kernel `usblp` (crea `/dev/usb/lp0`, `/dev/usb/lp1`, …).
+  - Instala la regla udev con permisos para impresoras USB.
+  - Crea `.env` con un `API_TOKEN` aleatorio y `api/config/printers.yml`.
+  - Hace `docker compose up -d --build` y espera a que `/health` responda.
+  - Imprime al final la URL del servicio y el `API_TOKEN` generado.
 
-**Cierra la sesión SSH y vuelve a entrar** (`exit` y `ssh` de nuevo) para
-que tome efecto el grupo `docker`.
+> El bootstrap usa `sg docker -c ...` para tomar la membresía del grupo
+> `docker` sin necesidad de cerrar sesión. Si prefieres, también puedes
+> salir y volver a entrar por SSH después.
 
 ---
 
 ## 3. Configurar tus impresoras
 
-1. Verifica que la Pi ve la XP-420B:
+Con el bootstrap ya corrido, el servicio levanta con la config por defecto
+(una XP-420B en `/dev/usb/lp0`). Si tu layout es distinto:
+
+1. Verifica qué ve la Pi:
 
    ```bash
-   ./scripts/detect-printers.sh
+   ~/Impresoras-POS/scripts/detect-printers.sh
    ```
 
-   Deberías ver algo en `lsusb` y `/dev/usb/lp0` presente.
+2. Edita `~/Impresoras-POS/api/config/printers.yml` (ids, device, medidas).
+   Para sumar más impresoras, duplica el bloque con otro `id` y `device`
+   (`/dev/usb/lp1`, etc.) y reinicia: `docker compose restart api`.
 
-2. Edita `api/config/printers.yml` con los datos reales (ya hay un ejemplo
-   con `id: principal` y `device: /dev/usb/lp0`). Para más impresoras a
-   futuro, duplica el bloque cambiando el `id` y el `device` (`/dev/usb/lp1`,
-   etc.).
-
-3. Edita `.env` y cambia `API_TOKEN` por un token propio (deja vacío para
-   desactivar la autenticación, sólo recomendable en red privada).
+3. Si no quieres autenticación (sólo LAN privada), edita `.env` y deja
+   `API_TOKEN=` vacío. El token aleatorio generado por el bootstrap se
+   imprimió al final de su ejecución y vive en `.env`.
 
 ### (Opcional) Nombres estables por impresora
 
@@ -110,12 +111,17 @@ cambiar entre reinicios. Para fijarlos:
 
 ---
 
-## 4. Levantar el servicio
+## 4. Operar el servicio
+
+El bootstrap ya lo levantó. Para administrarlo:
 
 ```bash
-docker compose up -d --build
-docker compose logs -f api      # opcional
-curl http://localhost:8000/health
+cd ~/Impresoras-POS
+docker compose ps
+docker compose logs -f api
+docker compose restart api
+docker compose down      # detener
+docker compose up -d     # iniciar
 ```
 
 Desde tu Mac u otro equipo en la red:

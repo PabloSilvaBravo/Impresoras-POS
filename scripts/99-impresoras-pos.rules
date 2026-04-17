@@ -1,0 +1,10 @@
+# Permisos para impresoras USB conectadas a la Raspberry.
+# Da acceso de lectura/escritura al grupo "lp" (y a docker indirectamente).
+SUBSYSTEM=="usbmisc", KERNEL=="lp[0-9]*", MODE="0660", GROUP="lp"
+SUBSYSTEM=="usb", ATTRS{bDeviceClass}=="07", MODE="0660", GROUP="lp"
+
+# Ejemplo de nombre persistente para una Xprinter XP-420B específica.
+# 1) Conecta solo esa impresora y ejecuta: lsusb y luego
+#    udevadm info -a -n /dev/usb/lp0 | grep -E 'idVendor|idProduct|serial'
+# 2) Completa los valores y descomenta la línea siguiente.
+# SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="YYYY", ATTRS{serial}=="ZZZZ", SYMLINK+="usb/xprinter-principal", MODE="0660", GROUP="lp"

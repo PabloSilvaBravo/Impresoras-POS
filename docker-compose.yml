@@ -1,0 +1,24 @@
+services:
+  api:
+    build: ./api
+    container_name: impresoras-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - CONFIG_PATH=/app/config/printers.yml
+    volumes:
+      - ./api/config:/app/config:ro
+      - /dev:/dev
+    # Acceso a dispositivos USB (/dev/usb/lp*) y hotplug de impresoras nuevas.
+    # device_cgroup_rules permite major 180 (usblp) sin privileged completo.
+    device_cgroup_rules:
+      - 'c 180:* rmw'
+      - 'c 189:* rmw'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

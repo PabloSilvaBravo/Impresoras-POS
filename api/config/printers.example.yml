@@ -1,0 +1,24 @@
+# Copia este archivo a api/config/printers.yml y ajusta los valores.
+# `device` es la ruta del puerto USB dentro del contenedor. Por defecto el
+# kernel crea /dev/usb/lp0, /dev/usb/lp1, etc. Si agregas una regla udev (ver
+# scripts/99-impresoras-pos.rules.example) puedes usar un nombre persistente
+# como /dev/usb/xprinter-principal.
+
+printers:
+  - id: principal
+    name: "Xprinter XP-420B - Principal"
+    model: xp-420b
+    device: /dev/usb/lp0
+    dots_per_mm: 8          # 203 dpi
+    default_width_mm: 100
+    default_height_mm: 60
+    default_gap_mm: 2
+    default_density: 8
+    default_speed: 4
+
+  # Ejemplo para una segunda impresora a futuro:
+  # - id: bodega
+  #   name: "Xprinter XP-420B - Bodega"
+  #   model: xp-420b
+  #   device: /dev/usb/lp1
+  #   dots_per_mm: 8

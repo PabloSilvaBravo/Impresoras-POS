@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+api/config/printers.yml
+*.log
+.DS_Store

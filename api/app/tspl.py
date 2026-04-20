@@ -68,6 +68,11 @@ def build_label(spec: LabelSpec, printer: PrinterConfig) -> bytes:
         f"DIRECTION {spec.direction}",
         f"DENSITY {density}",
         f"SPEED {speed}",
+        # Requerido para que la impresora interprete como UTF-8 los bytes que
+        # ya emitimos con .encode("utf-8") al final. Sin esto la Xprinter
+        # asume CP437 y los acentos (á, é, í, ó, ú, ñ) salen como espacios
+        # vacíos o glifos erróneos.
+        "CODEPAGE UTF-8",
         "CLS",
     ]
     lines.extend(_render_element(el, dpmm) for el in spec.elements)

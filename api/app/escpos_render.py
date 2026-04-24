@@ -271,12 +271,10 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
                 # Bitmap ya es del ancho del papel (o más); imprimir tal cual
                 raster = ted_extractor.escpos_raster_bytes(img)
 
-        # Sin LF entre raster y texto: el bitmap ya viene con ancho centrado
-        # y el texto queda pegado abajo (menos espacio en blanco).
-        out = ALIGN_LEFT + raster
-        out += ALIGN_CENTER + _encode("Timbre Electrónico SII", enc) + LF
-        out += LF
-        return out
+        # El bitmap extraído del PDF de Bsale ya incluye su propio texto
+        # "Timbre Electrónico SII — Res. 80 — Verifique en tuboleta.bsale.cl",
+        # así que no agregamos nada adicional abajo.
+        return ALIGN_LEFT + raster + LF
     except Exception as e:
         log.warning(f"TED render fail venta_id={spec.ted.venta_id}: {e}")
         return _render_ted_fallback(enc)

@@ -3,11 +3,16 @@
 # kernel crea /dev/usb/lp0, /dev/usb/lp1, etc. Si agregas una regla udev (ver
 # scripts/99-impresoras-pos.rules.example) puedes usar un nombre persistente
 # como /dev/usb/xprinter-principal.
+#
+# `protocol` determina qué endpoint acepta la impresora:
+#   tspl   → POST /print/{id}    (etiquetas, Xprinter XP-420B y similares)
+#   escpos → POST /receipt/{id}  (recibos, POS-80xx / POS-58xx / TM-*)
 
 printers:
   - id: principal
     name: "Xprinter XP-420B - Principal"
     model: xp-420b
+    protocol: tspl
     device: /dev/usb/lp0
     dots_per_mm: 8          # 203 dpi
     default_width_mm: 100
@@ -16,9 +21,17 @@ printers:
     default_density: 8
     default_speed: 4
 
-  # Ejemplo para una segunda impresora a futuro:
+  # Ejemplo: segunda etiquetadora TSPL
   # - id: bodega
   #   name: "Xprinter XP-420B - Bodega"
   #   model: xp-420b
+  #   protocol: tspl
   #   device: /dev/usb/lp1
   #   dots_per_mm: 8
+
+  # Ejemplo: impresora de recibos ESC/POS (POS-8370, 80mm, 48 chars/línea)
+  # - id: punto_de_venta
+  #   name: "POS-8370 - Punto de Venta"
+  #   model: pos-8370
+  #   protocol: escpos
+  #   device: /dev/usb/lp1

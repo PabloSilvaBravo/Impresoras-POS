@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
@@ -11,6 +12,10 @@ class PrinterConfig:
     name: str
     device: str
     model: str = "xp-420b"
+    # "tspl"   → etiquetas térmicas (Xprinter XP-420B y similares)
+    # "escpos" → recibos de punto de venta (POS-80xx, POS-58xx, EPSON TM-*, etc.)
+    protocol: Literal["tspl", "escpos"] = "tspl"
+    # TSPL
     dots_per_mm: int = 8
     default_width_mm: float = 100.0
     default_height_mm: float = 60.0

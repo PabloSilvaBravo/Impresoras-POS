@@ -4,7 +4,8 @@ import os
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 
 from .config import api_token, load_printers
-from .models import LabelSpec, PrinterPublic, RawPayload
+from .escpos_render import build_receipt
+from .models import LabelSpec, PrinterPublic, RawPayload, ReceiptSpec
 from .printers import PrinterManager, detect_usb_printers
 from .tspl import build_label
 
@@ -43,6 +44,7 @@ def list_printers() -> list[PrinterPublic]:
             model=p.model,
             device=p.device,
             available=_manager.is_available(p.id),
+            protocol=p.protocol,
         )
         for p in _manager.printers.values()
     ]
@@ -58,6 +60,12 @@ async def print_label(printer_id: str, spec: LabelSpec) -> dict:
     cfg = _manager.printers.get(printer_id)
     if not cfg:
         raise HTTPException(404, f"Impresora '{printer_id}' no encontrada")
+    if cfg.protocol != "tspl":
+        raise HTTPException(
+            422,
+            f"Impresora '{printer_id}' usa protocolo '{cfg.protocol}'. "
+            f"Para recibos ESC/POS usa POST /receipt/{printer_id}.",
+        )
     if not _manager.is_available(printer_id):
         raise HTTPException(503, f"Dispositivo {cfg.device} no disponible")
     payload = build_label(spec, cfg)
@@ -75,3 +83,21 @@ async def print_raw(printer_id: str, body: RawPayload) -> dict:
     payload = body.data.encode("utf-8") if isinstance(body.data, str) else body.data
     await _manager.send(printer_id, payload)
     return {"status": "printed", "bytes": len(payload)}
+
+
+@app.post("/receipt/{printer_id}", dependencies=[Depends(auth)])
+async def print_receipt(printer_id: str, spec: ReceiptSpec) -> dict:
+    cfg = _manager.printers.get(printer_id)
+    if not cfg:
+        raise HTTPException(404, f"Impresora '{printer_id}' no encontrada")
+    if cfg.protocol != "escpos":
+        raise HTTPException(
+            422,
+            f"Impresora '{printer_id}' usa protocolo '{cfg.protocol}'. "
+            f"Para etiquetas TSPL usa POST /print/{printer_id}.",
+        )
+    if not _manager.is_available(printer_id):
+        raise HTTPException(503, f"Dispositivo {cfg.device} no disponible")
+    payload = build_receipt(spec, cfg)
+    await _manager.send(printer_id, payload)
+    return {"status": "printed", "bytes": len(payload), "copies": spec.copies}

@@ -271,7 +271,9 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
                 # Bitmap ya es del ancho del papel (o más); imprimir tal cual
                 raster = ted_extractor.escpos_raster_bytes(img)
 
-        out = ALIGN_LEFT + raster + LF
+        # Sin LF entre raster y texto: el bitmap ya viene con ancho centrado
+        # y el texto queda pegado abajo (menos espacio en blanco).
+        out = ALIGN_LEFT + raster
         out += ALIGN_CENTER + _encode("Timbre Electrónico SII", enc) + LF
         out += LF
         return out

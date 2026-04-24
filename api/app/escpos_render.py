@@ -250,21 +250,28 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
             log.warning(f"TED cache miss venta_id={spec.ted.venta_id} — fallback texto")
             return _render_ted_fallback(enc)
 
-        with _PILImage.open(path) as img:
-            img_width = img.width
-            raster = ted_extractor.escpos_raster_bytes(img)
-
-        # Calcular margen para centrar el bitmap en el ancho del papel.
-        # Default 576 dots = 80mm a 203dpi (POS-8370). Configurable via env
-        # TED_PAPER_WIDTH_DOTS para impresoras de 58mm (=384) u otras.
+        # Centramos el bitmap PADEÁNDOLO con píxeles blancos a izquierda
+        # y derecha hasta llegar al ancho del papel. Esto NO depende de
+        # ningún comando de posicionamiento de la impresora (las POS-80xx
+        # baratas suelen ignorar ESC $ y ALIGN_CENTER en raster), por lo
+        # que el centrado siempre funciona.
+        #
+        # paper_w = ancho del papel en dots. Default 576 (80mm a 203dpi).
+        # Configurable via TED_PAPER_WIDTH_DOTS.
         paper_w = int(os.environ.get("TED_PAPER_WIDTH_DOTS", "576"))
-        # padded a múltiplo de 8
-        padded_w = ((img_width + 7) // 8) * 8
-        margin = max(0, (paper_w - padded_w) // 2)
-        # ESC $ nL nH = posición horizontal absoluta en dots (0..65535)
-        position_cmd = bytes([0x1B, 0x24, margin & 0xFF, (margin >> 8) & 0xFF])
 
-        out = ALIGN_LEFT + position_cmd + raster + LF
+        with _PILImage.open(path) as img:
+            if img.width < paper_w:
+                # Padear a paper_w manteniendo altura, contenido centrado
+                padded = _PILImage.new("1", (paper_w, img.height), color=1)  # blanco
+                paste_x = (paper_w - img.width) // 2
+                padded.paste(img, (paste_x, 0))
+                raster = ted_extractor.escpos_raster_bytes(padded)
+            else:
+                # Bitmap ya es del ancho del papel (o más); imprimir tal cual
+                raster = ted_extractor.escpos_raster_bytes(img)
+
+        out = ALIGN_LEFT + raster + LF
         out += ALIGN_CENTER + _encode("Timbre Electrónico SII", enc) + LF
         out += LF
         return out

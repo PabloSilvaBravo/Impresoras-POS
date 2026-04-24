@@ -108,6 +108,25 @@ class ReceiptTotal(BaseModel):
     big: bool = False
 
 
+class TedSpec(BaseModel):
+    """
+    Timbre Electrónico SII (TED, código PDF417 firmado por la clave privada
+    del contribuyente). El servicio descarga el PDF oficial generado por
+    Bsale, recorta la región del TED y la imprime como bitmap raster.
+
+    Solo aplica a Documentos Tributarios Electrónicos (DTE):
+      - boleta  → cd_sii 39
+      - factura → cd_sii 33
+
+    `roi` opcional permite override del recorte. Si se omite, se usa el
+    default de TED_ROI_BY_TEMPLATE en ted_extractor.py.
+    """
+    pdf_url: str
+    template: Literal["boleta", "factura"]
+    venta_id: int
+    roi: tuple[float, float, float, float] | None = None  # (x, y, w, h) fraccional [0..1]
+
+
 class ReceiptSpec(BaseModel):
     """
     Recibo ESC/POS genérico para impresoras térmicas de 80mm/58mm.
@@ -120,6 +139,7 @@ class ReceiptSpec(BaseModel):
       items         → líneas del ticket (nombre + qty x precio = total)
       totals        → subtotales y total (bold/big para énfasis)
       footer_lines  → mensaje de cierre
+      ted           → opcional, timbre SII PDF417 (extraído del PDF Bsale)
       qr_content    → opcional, QR al final (link al PDF oficial)
       corte de papel
     """
@@ -130,6 +150,7 @@ class ReceiptSpec(BaseModel):
     items: list[ReceiptLine] = []
     totals: list[ReceiptTotal] = []
     footer_lines: list[str] = []
+    ted: TedSpec | None = None
     qr_content: str | None = None
     cut: bool = True
     copies: int = Field(1, ge=1, le=5)

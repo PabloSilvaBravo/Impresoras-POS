@@ -14,8 +14,12 @@ Codepages soportados:
 Probado en: POS-8370 (Winbond 0416:5011, 80mm, 48 chars por línea)
 """
 
+import logging
+
 from .config import PrinterConfig
 from .models import ReceiptSpec
+
+log = logging.getLogger(__name__)
 
 # ── Secuencias ESC/POS (bytes crudos) ────────────────────────────────────────
 
@@ -216,6 +220,42 @@ def _render_qr(spec: ReceiptSpec) -> bytes:
     return out
 
 
+def _render_ted_fallback(enc: str) -> bytes:
+    """Mensaje impreso cuando no se pudo extraer/cachear el TED."""
+    out = ALIGN_CENTER + LF
+    out += _encode("Timbre SII no disponible", enc) + LF
+    out += _encode("Ver documento PDF oficial", enc) + LF
+    out += LF
+    return out
+
+
+def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
+    """
+    Renderea el TED como bitmap raster ESC/POS, leyendo del cache.
+    Si el cache no existe o falla la lectura, usa fallback de texto.
+    El cache lo genera el endpoint async (/receipt o /ted/prefetch) ANTES
+    de llamar a build_receipt.
+    """
+    if spec.ted is None:
+        return b""
+    try:
+        from . import ted_extractor
+        from PIL import Image as _PILImage
+        path = ted_extractor._cache_path(spec.ted.venta_id)
+        if not ted_extractor._cache_valid(path):
+            log.warning(f"TED cache miss venta_id={spec.ted.venta_id} — fallback texto")
+            return _render_ted_fallback(enc)
+        with _PILImage.open(path) as img:
+            raster = ted_extractor.escpos_raster_bytes(img)
+        out = ALIGN_CENTER + raster + LF
+        out += _encode("Timbre Electrónico SII", enc) + LF
+        out += LF
+        return out
+    except Exception as e:
+        log.warning(f"TED render fail venta_id={spec.ted.venta_id}: {e}")
+        return _render_ted_fallback(enc)
+
+
 def _render_cut(spec: ReceiptSpec) -> bytes:
     out = _feed(3)  # 3 líneas de feed para dar espacio al corte
     if spec.cut:
@@ -244,6 +284,7 @@ def build_receipt(spec: ReceiptSpec, printer: PrinterConfig) -> bytes:
     single += _render_items(spec, enc)
     single += _render_totals(spec, enc)
     single += _render_footer(spec, enc)
+    single += _render_ted(spec, enc)
     single += _render_qr(spec)
     single += _render_cut(spec)
 

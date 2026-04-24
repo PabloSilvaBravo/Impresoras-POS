@@ -235,20 +235,37 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
     Si el cache no existe o falla la lectura, usa fallback de texto.
     El cache lo genera el endpoint async (/receipt o /ted/prefetch) ANTES
     de llamar a build_receipt.
+
+    Centra horizontalmente con `ESC $ nL nH` porque la mayoría de los
+    firmwares ESC/POS NO aplican `ALIGN_CENTER` a comandos raster.
     """
     if spec.ted is None:
         return b""
     try:
+        import os
         from . import ted_extractor
         from PIL import Image as _PILImage
         path = ted_extractor._cache_path(spec.ted.venta_id)
         if not ted_extractor._cache_valid(path):
             log.warning(f"TED cache miss venta_id={spec.ted.venta_id} — fallback texto")
             return _render_ted_fallback(enc)
+
         with _PILImage.open(path) as img:
+            img_width = img.width
             raster = ted_extractor.escpos_raster_bytes(img)
-        out = ALIGN_CENTER + raster + LF
-        out += _encode("Timbre Electrónico SII", enc) + LF
+
+        # Calcular margen para centrar el bitmap en el ancho del papel.
+        # Default 576 dots = 80mm a 203dpi (POS-8370). Configurable via env
+        # TED_PAPER_WIDTH_DOTS para impresoras de 58mm (=384) u otras.
+        paper_w = int(os.environ.get("TED_PAPER_WIDTH_DOTS", "576"))
+        # padded a múltiplo de 8
+        padded_w = ((img_width + 7) // 8) * 8
+        margin = max(0, (paper_w - padded_w) // 2)
+        # ESC $ nL nH = posición horizontal absoluta en dots (0..65535)
+        position_cmd = bytes([0x1B, 0x24, margin & 0xFF, (margin >> 8) & 0xFF])
+
+        out = ALIGN_LEFT + position_cmd + raster + LF
+        out += ALIGN_CENTER + _encode("Timbre Electrónico SII", enc) + LF
         out += LF
         return out
     except Exception as e:

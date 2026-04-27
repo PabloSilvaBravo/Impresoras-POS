@@ -108,6 +108,18 @@ class ReceiptTotal(BaseModel):
     big: bool = False
 
 
+class DocumentSpec(BaseModel):
+    """
+    Documento PDF a imprimir en una impresora IPP (típicamente A4/Carta).
+    Usado para facturas, reportes, etc. donde se quiere el PDF oficial
+    completo, no un resumen térmico.
+    """
+    pdf_url: str
+    copies: int = Field(1, ge=1, le=10)
+    document_format: str = "application/pdf"
+    requesting_user_name: str = "anonymous"
+
+
 class TedSpec(BaseModel):
     """
     Timbre Electrónico SII (TED, código PDF417 firmado por la clave privada

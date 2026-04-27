@@ -5,10 +5,10 @@ from typing import Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel
 
-from . import ted_extractor
+from . import ipp_client, ted_extractor
 from .config import api_token, load_printers
 from .escpos_render import build_receipt
-from .models import LabelSpec, PrinterPublic, RawPayload, ReceiptSpec
+from .models import DocumentSpec, LabelSpec, PrinterPublic, RawPayload, ReceiptSpec
 from .printers import PrinterManager, detect_usb_printers
 from .tspl import build_label
 
@@ -140,6 +140,66 @@ async def print_receipt(printer_id: str, spec: ReceiptSpec) -> dict:
         "copies": spec.copies,
         "ted": ted_status,
     }
+
+
+# ── IPP: imprimir PDF en impresora de red (Brother, EPSON, etc.) ────────────
+
+@app.post("/document/{printer_id}", dependencies=[Depends(auth)])
+async def print_document(printer_id: str, spec: DocumentSpec) -> dict:
+    """
+    Descarga un PDF desde la URL provista y lo envía a la impresora IPP
+    indicada (típicamente facturas A4 a una Brother/EPSON/HP en red).
+
+    El servicio nunca cachea el PDF: cada print es un download fresco para
+    asegurar que el documento es la versión actual de Bsale (las URLs llevan
+    parámetros de firma).
+    """
+    cfg = _manager.printers.get(printer_id)
+    if not cfg:
+        raise HTTPException(404, f"Impresora '{printer_id}' no encontrada")
+    if cfg.protocol != "ipp":
+        raise HTTPException(
+            422,
+            f"Impresora '{printer_id}' usa protocolo '{cfg.protocol}'. "
+            f"Para PDFs por red usa una impresora con protocol=ipp.",
+        )
+
+    # Descargar el PDF
+    import httpx as _httpx
+    log = logging.getLogger(__name__)
+    log.info(f"IPP document → {printer_id} pdf_url={spec.pdf_url}")
+    try:
+        async with _httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(spec.pdf_url)
+            r.raise_for_status()
+            pdf_bytes = r.content
+    except _httpx.HTTPError as e:
+        raise HTTPException(502, f"Error descargando PDF: {e}")
+
+    if not pdf_bytes or pdf_bytes[:4] != b"%PDF":
+        raise HTTPException(
+            502,
+            f"La URL no devolvió un PDF válido (primeros bytes: {pdf_bytes[:8]!r}, size={len(pdf_bytes)})",
+        )
+
+    # Enviar a la impresora IPP. El cfg.device contiene la URI ipp://host:port/path
+    try:
+        result = await ipp_client.print_pdf(
+            cfg.device,
+            pdf_bytes,
+            copies=spec.copies,
+            document_format=spec.document_format,
+            requesting_user=spec.requesting_user_name,
+            job_name=f"dashboard-{printer_id}",
+        )
+    except ipp_client.IPPError as e:
+        raise HTTPException(502, f"Impresora IPP rechazó: {e}")
+    except _httpx.ConnectError as e:
+        raise HTTPException(503, f"Impresora IPP no responde: {e}")
+    except _httpx.HTTPError as e:
+        raise HTTPException(502, f"Error IPP: {e}")
+
+    return result
 
 
 # ── TED Prefetch ─────────────────────────────────────────────────────────────

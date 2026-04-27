@@ -182,24 +182,62 @@ async def print_document(printer_id: str, spec: DocumentSpec) -> dict:
             f"La URL no devolvió un PDF válido (primeros bytes: {pdf_bytes[:8]!r}, size={len(pdf_bytes)})",
         )
 
-    # Enviar a la impresora IPP. El cfg.device contiene la URI ipp://host:port/path
-    try:
-        result = await ipp_client.print_pdf(
+    # Enviar a la impresora IPP. Cascada: si la impresora rechaza PDF con
+    # 'document-format-not-supported' (típico en Brother T-series y muchas
+    # de oficina), convertir a PostScript con pdftops y reintentar.
+    async def _try_print(payload: bytes, fmt: str) -> dict:
+        return await ipp_client.print_pdf(
             cfg.device,
-            pdf_bytes,
+            payload,
             copies=spec.copies,
-            document_format=spec.document_format,
+            document_format=fmt,
             requesting_user=spec.requesting_user_name,
             job_name=f"dashboard-{printer_id}",
         )
+
+    try:
+        try:
+            result = await _try_print(pdf_bytes, spec.document_format)
+            result["format"] = spec.document_format
+            return result
+        except ipp_client.IPPError as e:
+            err_str = str(e).lower()
+            if "format-not-supported" not in err_str:
+                raise
+
+            log.info(f"Brother rechazó PDF, convirtiendo a PostScript con pdftops...")
+            import asyncio as _asyncio
+            import subprocess as _sp
+            try:
+                proc = await _asyncio.create_subprocess_exec(
+                    "pdftops", "-", "-",
+                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.PIPE,
+                )
+                ps_bytes, ps_err = await _asyncio.wait_for(
+                    proc.communicate(input=pdf_bytes), timeout=30.0
+                )
+                if proc.returncode != 0:
+                    raise HTTPException(
+                        500,
+                        f"pdftops falló (rc={proc.returncode}): {ps_err.decode('utf-8', errors='replace')[:200]}",
+                    )
+            except FileNotFoundError:
+                raise HTTPException(500, "pdftops no instalado en el contenedor (poppler-utils)")
+            except _asyncio.TimeoutError:
+                raise HTTPException(504, "Timeout convirtiendo PDF a PostScript")
+
+            log.info(f"PDF→PS OK ({len(pdf_bytes)} → {len(ps_bytes)} bytes), reintentando IPP...")
+            result = await _try_print(ps_bytes, "application/postscript")
+            result["format"] = "application/postscript"
+            result["converted_from"] = "application/pdf"
+            return result
+
     except ipp_client.IPPError as e:
         raise HTTPException(502, f"Impresora IPP rechazó: {e}")
     except _httpx.ConnectError as e:
         raise HTTPException(503, f"Impresora IPP no responde: {e}")
     except _httpx.HTTPError as e:
         raise HTTPException(502, f"Error IPP: {e}")
-
-    return result
 
 
 # ── TED Prefetch ─────────────────────────────────────────────────────────────

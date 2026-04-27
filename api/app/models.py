@@ -81,7 +81,7 @@ class PrinterPublic(BaseModel):
     model: str
     device: str
     available: bool
-    protocol: Literal["tspl", "escpos"] = "tspl"
+    protocol: Literal["tspl", "escpos", "ipp"] = "tspl"
 
 
 # ── ESC/POS (recibos de punto de venta) ──────────────────────────────────────

@@ -14,7 +14,9 @@ class PrinterConfig:
     model: str = "xp-420b"
     # "tspl"   → etiquetas térmicas (Xprinter XP-420B y similares)
     # "escpos" → recibos de punto de venta (POS-80xx, POS-58xx, EPSON TM-*, etc.)
-    protocol: Literal["tspl", "escpos"] = "tspl"
+    # "ipp"    → impresora WiFi/red con IPP nativo (Brother, EPSON, HP)
+    #            En este caso `device` debe ser una URI ipp://host:port/path
+    protocol: Literal["tspl", "escpos", "ipp"] = "tspl"
     # TSPL
     dots_per_mm: int = 8
     default_width_mm: float = 100.0

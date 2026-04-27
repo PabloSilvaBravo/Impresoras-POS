@@ -35,3 +35,10 @@ printers:
   #   model: pos-8370
   #   protocol: escpos
   #   device: /dev/usb/lp1
+
+  # Ejemplo: impresora WiFi via IPP (Brother DCP-T720DW, EPSON, HP, etc.)
+  # - id: brother
+  #   name: "Brother DCP-T720DW - Oficina"
+  #   model: dcp-t720dw
+  #   protocol: ipp
+  #   device: ipp://192.168.1.42:631/ipp/print  # device aquí es la URI IPP

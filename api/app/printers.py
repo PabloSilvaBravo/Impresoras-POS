@@ -22,6 +22,11 @@ class PrinterManager:
         cfg = self.printers.get(printer_id)
         if not cfg:
             return False
+        # Para impresoras de red (IPP) no podemos chequear con Path; asumimos
+        # disponible. El endpoint que la usa manejará timeout/connect errors.
+        if cfg.protocol == "ipp":
+            return True
+        # USB: chequeo del device file
         return Path(cfg.device).exists()
 
     async def send(self, printer_id: str, payload: bytes) -> None:

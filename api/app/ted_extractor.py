@@ -67,7 +67,14 @@ _semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
 # ── Cache ───────────────────────────────────────────────────────────────────
 
-def _cache_path(venta_id: int) -> Path:
+def _cache_path(venta_id: int, target_width: int | None = None) -> Path:
+    """
+    Path del PNG cacheado. Si hay target_width distinto del default global,
+    se incluye en el nombre del archivo para no mezclar bitmaps de tamaños
+    distintos (ej. boleta chica vs factura grande del mismo venta_id).
+    """
+    if target_width and target_width != TARGET_WIDTH:
+        return CACHE_DIR / f"{venta_id}_w{target_width}.png"
     return CACHE_DIR / f"{venta_id}.png"
 
 def _cache_valid(path: Path) -> bool:
@@ -105,13 +112,16 @@ def extract_ted_image(
     pdf_bytes: bytes,
     template: str,
     roi: tuple[float, float, float, float] | None = None,
+    target_width: int | None = None,
 ) -> Image.Image:
     """
     Renderiza la pág. 1 del PDF, recorta el ROI del TED y lo prepara para
-    impresión raster: ancho TARGET_WIDTH px, 1-bit con Floyd-Steinberg dither.
+    impresión raster: ancho `target_width` px (default TED_TARGET_WIDTH_PX),
+    1-bit con Floyd-Steinberg dither.
     """
     if roi is None:
         roi = TED_ROI_BY_TEMPLATE.get(template, _DEFAULT_ROI["boleta"])
+    tw = target_width if target_width else TARGET_WIDTH
 
     pages = convert_from_bytes(pdf_bytes, dpi=RENDER_DPI, first_page=1, last_page=1)
     if not pages:
@@ -128,35 +138,39 @@ def extract_ted_image(
     )
     cropped = page.crop(box)
 
-    # Resize manteniendo aspect a TARGET_WIDTH de ancho
+    # Resize manteniendo aspect ratio a `tw` de ancho
     src_w, src_h = cropped.size
-    scale = TARGET_WIDTH / src_w
+    scale = tw / src_w
     new_h = int(src_h * scale)
-    cropped = cropped.resize((TARGET_WIDTH, new_h), Image.LANCZOS)
+    cropped = cropped.resize((tw, new_h), Image.LANCZOS)
 
     # 1-bit con dither Floyd-Steinberg para preservar el código de barras
     bw = cropped.convert("1", dither=Image.FLOYDSTEINBERG)
     return bw
 
-async def get_or_cache(venta_id: int, pdf_url: str, template: str) -> Path:
+async def get_or_cache(
+    venta_id: int,
+    pdf_url: str,
+    template: str,
+    target_width: int | None = None,
+) -> Path:
     """
     Devuelve el path al PNG cacheado del TED. Si no existe o venció, lo genera.
-    Se usa el semaphore para limitar concurrencia.
+    El cache key incluye target_width cuando hay override (así boletas y facturas
+    con tamaños distintos no comparten cache).
     """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _cache_path(venta_id)
+    path = _cache_path(venta_id, target_width)
     if _cache_valid(path):
         return path
 
     async with _semaphore:
-        # Re-check tras tomar el lock (otro coro pudo generarlo)
         if _cache_valid(path):
             return path
-        log.info(f"TED extracting venta_id={venta_id} template={template}")
+        log.info(f"TED extracting venta_id={venta_id} template={template} tw={target_width or TARGET_WIDTH}")
         pdf_bytes = await download_pdf(pdf_url)
-        # extract_ted_image es CPU-bound — al thread pool
         loop = asyncio.get_event_loop()
-        img = await loop.run_in_executor(None, extract_ted_image, pdf_bytes, template, None)
+        img = await loop.run_in_executor(None, extract_ted_image, pdf_bytes, template, None, target_width)
         img.save(path, format="PNG")
         log.info(f"TED cached venta_id={venta_id} path={path} size={path.stat().st_size}")
         return path

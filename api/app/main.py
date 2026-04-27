@@ -120,7 +120,10 @@ async def print_receipt(printer_id: str, spec: ReceiptSpec) -> dict:
     if spec.ted is not None:
         try:
             await ted_extractor.get_or_cache(
-                spec.ted.venta_id, spec.ted.pdf_url, spec.ted.template
+                spec.ted.venta_id,
+                spec.ted.pdf_url,
+                spec.ted.template,
+                target_width=spec.ted.target_width_px,
             )
             ted_status = "cached"
         except Exception as e:
@@ -144,6 +147,7 @@ async def print_receipt(printer_id: str, spec: ReceiptSpec) -> dict:
 class TedPrefetchBody(BaseModel):
     pdf_url: str
     template: Literal["boleta", "factura"]
+    target_width_px: int | None = None
 
 
 @app.post("/ted/prefetch/{venta_id}", dependencies=[Depends(auth)])
@@ -155,15 +159,20 @@ async def ted_prefetch(venta_id: int, body: TedPrefetchBody, bg: BackgroundTasks
 
     Responde 202 inmediato — el procesamiento corre asíncrono.
     """
-    bg.add_task(_safe_prefetch, venta_id, body.pdf_url, body.template)
+    bg.add_task(_safe_prefetch, venta_id, body.pdf_url, body.template, body.target_width_px)
     return {"accepted": True, "venta_id": venta_id}
 
 
-async def _safe_prefetch(venta_id: int, pdf_url: str, template: str) -> None:
+async def _safe_prefetch(
+    venta_id: int,
+    pdf_url: str,
+    template: str,
+    target_width: int | None = None,
+) -> None:
     """Wrapper que loguea errores sin propagarlos (es background task)."""
     try:
-        await ted_extractor.get_or_cache(venta_id, pdf_url, template)
-        logging.getLogger(__name__).info(f"TED prefetched venta_id={venta_id}")
+        await ted_extractor.get_or_cache(venta_id, pdf_url, template, target_width)
+        logging.getLogger(__name__).info(f"TED prefetched venta_id={venta_id} tw={target_width}")
     except Exception as e:
         logging.getLogger(__name__).warning(
             f"TED prefetch fail venta_id={venta_id}: {type(e).__name__}: {e}"

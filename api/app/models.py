@@ -118,13 +118,20 @@ class TedSpec(BaseModel):
       - boleta  → cd_sii 39
       - factura → cd_sii 33
 
-    `roi` opcional permite override del recorte. Si se omite, se usa el
-    default de TED_ROI_BY_TEMPLATE en ted_extractor.py.
+    Campos opcionales que sobrescriben los defaults de env vars:
+      - roi              → recorte específico, default TED_ROI_BY_TEMPLATE
+      - target_width_px  → ancho final del bitmap, default TED_TARGET_WIDTH_PX
+      - paper_width_dots → ancho del papel para centrado, default TED_PAPER_WIDTH_DOTS
+
+    Estos overrides permiten configurar tamaños distintos por template
+    (ej: boleta más chica, factura más grande) sin tocar env vars.
     """
     pdf_url: str
     template: Literal["boleta", "factura"]
     venta_id: int
     roi: tuple[float, float, float, float] | None = None  # (x, y, w, h) fraccional [0..1]
+    target_width_px: int | None = Field(default=None, ge=100, le=1000)
+    paper_width_dots: int | None = Field(default=None, ge=200, le=1200)
 
 
 class ReceiptSpec(BaseModel):

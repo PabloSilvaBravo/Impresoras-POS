@@ -245,7 +245,7 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
         import os
         from . import ted_extractor
         from PIL import Image as _PILImage
-        path = ted_extractor._cache_path(spec.ted.venta_id)
+        path = ted_extractor._cache_path(spec.ted.venta_id, spec.ted.target_width_px)
         if not ted_extractor._cache_valid(path):
             log.warning(f"TED cache miss venta_id={spec.ted.venta_id} — fallback texto")
             return _render_ted_fallback(enc)
@@ -256,9 +256,13 @@ def _render_ted(spec: ReceiptSpec, enc: str) -> bytes:
         # baratas suelen ignorar ESC $ y ALIGN_CENTER en raster), por lo
         # que el centrado siempre funciona.
         #
-        # paper_w = ancho del papel en dots. Default 576 (80mm a 203dpi).
-        # Configurable via TED_PAPER_WIDTH_DOTS.
-        paper_w = int(os.environ.get("TED_PAPER_WIDTH_DOTS", "576"))
+        # paper_w = ancho del papel en dots. Override por spec o env var
+        # (default 576 = 80mm a 203dpi).
+        paper_w = (
+            spec.ted.paper_width_dots
+            if spec.ted.paper_width_dots
+            else int(os.environ.get("TED_PAPER_WIDTH_DOTS", "576"))
+        )
 
         with _PILImage.open(path) as img:
             if img.width < paper_w:

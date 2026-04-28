@@ -182,55 +182,98 @@ async def print_document(printer_id: str, spec: DocumentSpec) -> dict:
             f"La URL no devolvió un PDF válido (primeros bytes: {pdf_bytes[:8]!r}, size={len(pdf_bytes)})",
         )
 
-    # Enviar a la impresora IPP. Cascada: si la impresora rechaza PDF con
-    # 'document-format-not-supported' (típico en Brother T-series y muchas
-    # de oficina), convertir a PostScript con pdftops y reintentar.
-    async def _try_print(payload: bytes, fmt: str) -> dict:
+    # Enviar a la impresora IPP. Las Brother T-series (y muchas inkjet de
+    # oficina) NO soportan PDF ni PostScript via IPP. Suelen aceptar:
+    #   - image/jpeg
+    #   - image/pwg-raster (IPP Everywhere)
+    #   - image/urf (AirPrint)
+    #   - application/vnd.brother-hbpl (propietario)
+    #
+    # Cascada: PDF → PostScript → JPEG (1 job por página). El primero que
+    # acepte la impresora gana. Para Brother DCP-T720DW va directo al JPEG.
+    async def _try_print(payload: bytes, fmt: str, job_suffix: str = "") -> dict:
         return await ipp_client.print_pdf(
             cfg.device,
             payload,
             copies=spec.copies,
             document_format=fmt,
             requesting_user=spec.requesting_user_name,
-            job_name=f"dashboard-{printer_id}",
+            job_name=f"dashboard-{printer_id}{job_suffix}",
         )
 
+    def _is_format_error(exc: Exception) -> bool:
+        return "format-not-supported" in str(exc).lower()
+
+    async def _convert_pdf_to_ps(pdf: bytes) -> bytes:
+        """Convierte PDF a PostScript usando pdftops (poppler-utils)."""
+        import asyncio as _asyncio
+        import subprocess as _sp
+        proc = await _asyncio.create_subprocess_exec(
+            "pdftops", "-", "-",
+            stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.PIPE,
+        )
+        out, err = await _asyncio.wait_for(proc.communicate(input=pdf), timeout=30.0)
+        if proc.returncode != 0:
+            raise RuntimeError(f"pdftops failed: {err.decode('utf-8', errors='replace')[:200]}")
+        return out
+
+    def _pdf_to_jpeg_pages(pdf: bytes, dpi: int = 200) -> list[bytes]:
+        """Convierte cada página del PDF a JPEG bytes con pdf2image."""
+        from pdf2image import convert_from_bytes
+        from io import BytesIO
+        pages = convert_from_bytes(pdf, dpi=dpi)
+        out = []
+        for p in pages:
+            buf = BytesIO()
+            p.convert("RGB").save(buf, format="JPEG", quality=92, optimize=True)
+            out.append(buf.getvalue())
+        return out
+
     try:
+        # Intento 1: PDF
         try:
             result = await _try_print(pdf_bytes, spec.document_format)
             result["format"] = spec.document_format
             return result
         except ipp_client.IPPError as e:
-            err_str = str(e).lower()
-            if "format-not-supported" not in err_str:
+            if not _is_format_error(e):
                 raise
 
-            log.info(f"Brother rechazó PDF, convirtiendo a PostScript con pdftops...")
-            import asyncio as _asyncio
-            import subprocess as _sp
-            try:
-                proc = await _asyncio.create_subprocess_exec(
-                    "pdftops", "-", "-",
-                    stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.PIPE,
-                )
-                ps_bytes, ps_err = await _asyncio.wait_for(
-                    proc.communicate(input=pdf_bytes), timeout=30.0
-                )
-                if proc.returncode != 0:
-                    raise HTTPException(
-                        500,
-                        f"pdftops falló (rc={proc.returncode}): {ps_err.decode('utf-8', errors='replace')[:200]}",
-                    )
-            except FileNotFoundError:
-                raise HTTPException(500, "pdftops no instalado en el contenedor (poppler-utils)")
-            except _asyncio.TimeoutError:
-                raise HTTPException(504, "Timeout convirtiendo PDF a PostScript")
-
-            log.info(f"PDF→PS OK ({len(pdf_bytes)} → {len(ps_bytes)} bytes), reintentando IPP...")
+        # Intento 2: PostScript
+        log.info("Impresora rechazó PDF, intentando PostScript...")
+        try:
+            ps_bytes = await _convert_pdf_to_ps(pdf_bytes)
+            log.info(f"PDF→PS OK ({len(pdf_bytes)}→{len(ps_bytes)} bytes), reintentando...")
             result = await _try_print(ps_bytes, "application/postscript")
             result["format"] = "application/postscript"
             result["converted_from"] = "application/pdf"
             return result
+        except ipp_client.IPPError as e:
+            if not _is_format_error(e):
+                raise
+        except FileNotFoundError:
+            log.warning("pdftops no disponible, salto PostScript")
+        except (RuntimeError, Exception) as e:
+            log.warning(f"PDF→PS falló: {e}, salto a JPEG")
+
+        # Intento 3: JPEG (1 job por página)
+        log.info("Impresora rechazó PostScript, convirtiendo a JPEG por página...")
+        import asyncio as _asyncio2
+        try:
+            loop = _asyncio2.get_event_loop()
+            jpegs = await loop.run_in_executor(None, _pdf_to_jpeg_pages, pdf_bytes, 200)
+        except Exception as e:
+            raise HTTPException(500, f"Error convirtiendo PDF a JPEG: {e}")
+
+        log.info(f"PDF→JPEG OK ({len(pdf_bytes)} bytes → {len(jpegs)} págs)")
+        last_result = None
+        for idx, jpg in enumerate(jpegs, start=1):
+            log.info(f"Imprimiendo pág {idx}/{len(jpegs)}: {len(jpg)} bytes JPEG")
+            last_result = await _try_print(jpg, "image/jpeg", job_suffix=f"-p{idx}")
+        last_result["format"] = "image/jpeg"
+        last_result["converted_from"] = "application/pdf"
+        last_result["pages"] = len(jpegs)
+        return last_result
 
     except ipp_client.IPPError as e:
         raise HTTPException(502, f"Impresora IPP rechazó: {e}")

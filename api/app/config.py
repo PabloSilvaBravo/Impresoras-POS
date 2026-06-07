@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +24,10 @@ class PrinterConfig:
     default_gap_mm: float = 2.0
     default_density: int = 8
     default_speed: int = 4
+    # ESC/POS — encabezado fijo de la empresa prependado a cada recibo
+    # (razón social, RUT, giro, dirección, web). Primera línea sale en
+    # bold + doble ancho, el resto en tamaño normal. Vacío = sin header.
+    company_header: list[str] = field(default_factory=list)
 
 
 def load_printers(path: str | None = None) -> dict[str, PrinterConfig]:

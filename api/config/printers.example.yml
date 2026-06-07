@@ -30,11 +30,19 @@ printers:
   #   dots_per_mm: 8
 
   # Ejemplo: impresora de recibos ESC/POS (POS-8370, 80mm, 48 chars/línea)
+  # `company_header` se prepende a cada recibo/boleta antes del título.
+  # Primera línea sale en bold + doble ancho (razón social).
   # - id: punto_de_venta
   #   name: "POS-8370 - Punto de Venta"
   #   model: pos-8370
   #   protocol: escpos
   #   device: /dev/usb/lp1
+  #   company_header:
+  #     - "Mechatronicstore SpA"
+  #     - "RUT: 76.954.614-6"
+  #     - "Venta de artículos electrónicos y de ingeniería"
+  #     - "M. Rodriguez 212, Curicó"
+  #     - "www.mechatronicstore.cl"
 
   # Ejemplo: impresora WiFi via IPP (Brother DCP-T720DW, EPSON, HP, etc.)
   # - id: brother

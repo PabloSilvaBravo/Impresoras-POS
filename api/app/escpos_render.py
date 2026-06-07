@@ -100,11 +100,14 @@ def _truncate(text: str, width: int) -> str:
 
 # ── Renderers por sección ───────────────────────────────────────────────────
 
-def _render_header(spec: ReceiptSpec, enc: str) -> bytes:
-    if not spec.header_lines:
+def _render_header(spec: ReceiptSpec, printer: PrinterConfig, enc: str) -> bytes:
+    # company_header (config de la impresora) va primero — info legal fija
+    # de la empresa. Después header_lines del spec — info por-recibo.
+    lines = list(printer.company_header) + list(spec.header_lines)
+    if not lines:
         return b""
     out = ALIGN_CENTER
-    for i, line in enumerate(spec.header_lines):
+    for i, line in enumerate(lines):
         if i == 0:
             # Primera línea (típicamente el nombre de la tienda): bold + doble ancho
             out += BOLD_ON + SIZE_DBL_WIDTH
@@ -306,7 +309,7 @@ def build_receipt(spec: ReceiptSpec, printer: PrinterConfig) -> bytes:
     single = b""
     single += RESET
     single += codepage
-    single += _render_header(spec, enc)
+    single += _render_header(spec, printer, enc)
     single += _render_title(spec, enc)
     single += _render_metadata(spec, enc)
     single += _render_items(spec, enc)

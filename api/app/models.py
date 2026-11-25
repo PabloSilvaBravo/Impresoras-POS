@@ -71,6 +71,16 @@ class LabelSpec(BaseModel):
     elements: list[Element]
 
 
+class PdfLabelSpec(BaseModel):
+    """PDF de etiqueta de courier (Blue, Chilexpress) para una térmica TSPL.
+    Va la URL del PDF o el PDF en base64, uno de los dos."""
+    pdf_url: str | None = None
+    pdf_base64: str | None = None
+    copies: int = Field(1, ge=1, le=10)
+    density: int | None = Field(None, ge=0, le=15)
+    speed: int | None = Field(None, ge=1, le=6)
+
+
 class RawPayload(BaseModel):
     data: str
 

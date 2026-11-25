@@ -8,9 +8,10 @@ from pydantic import BaseModel
 from . import ipp_client, ted_extractor
 from .config import api_token, load_printers
 from .escpos_render import build_receipt
-from .models import DocumentSpec, LabelSpec, PrinterPublic, RawPayload, ReceiptSpec
+from .models import DocumentSpec, LabelSpec, PdfLabelSpec, PrinterPublic, RawPayload, ReceiptSpec
 from .printers import PrinterManager, detect_usb_printers
 from .tspl import build_label
+from .tspl_pdf import build_pdf_label
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "info").upper(),
@@ -97,6 +98,54 @@ async def print_raw(printer_id: str, body: RawPayload) -> dict:
     payload = body.data.encode("utf-8") if isinstance(body.data, str) else body.data
     await _manager.send(printer_id, payload)
     return {"status": "printed", "bytes": len(payload)}
+
+
+PDF_MAX_BYTES = 8 * 1024 * 1024
+
+
+@app.post("/print-pdf/{printer_id}", dependencies=[Depends(auth)])
+async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
+    """PDF de etiqueta (una por página) a una térmica TSPL como mapa de bits."""
+    import asyncio as _asyncio
+    import base64 as _b64
+
+    import httpx as _httpx
+
+    cfg = _manager.printers.get(printer_id)
+    if not cfg:
+        raise HTTPException(404, f"Impresora '{printer_id}' no encontrada")
+    if cfg.protocol != "tspl":
+        raise HTTPException(422, f"Impresora '{printer_id}' usa protocolo '{cfg.protocol}'; /print-pdf es para tspl.")
+    if (spec.pdf_url is None) == (spec.pdf_base64 is None):
+        raise HTTPException(422, "Manda pdf_url o pdf_base64, uno de los dos.")
+    if not _manager.is_available(printer_id):
+        raise HTTPException(503, f"Dispositivo {cfg.device} no disponible")
+    if spec.pdf_url is not None:
+        try:
+            async with _httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                r = await client.get(spec.pdf_url)
+                r.raise_for_status()
+                pdf = r.content
+        except _httpx.HTTPError as e:
+            raise HTTPException(502, f"Error descargando PDF: {type(e).__name__}")
+    else:
+        try:
+            pdf = _b64.b64decode(spec.pdf_base64, validate=True)
+        except Exception:
+            raise HTTPException(422, "pdf_base64 no es base64 válido")
+    if len(pdf) > PDF_MAX_BYTES:
+        raise HTTPException(413, "El PDF pesa más de 8 MB")
+    if pdf[:5] != b"%PDF-":
+        raise HTTPException(422, "No es un PDF")
+    try:
+        payload, paginas = await _asyncio.to_thread(build_pdf_label, pdf, cfg, spec.copies, spec.density, spec.speed)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:
+        logging.getLogger(__name__).exception("print-pdf: no se pudo convertir")
+        raise HTTPException(500, f"No se pudo convertir el PDF: {type(e).__name__}")
+    await _manager.send(printer_id, payload)
+    return {"status": "printed", "bytes": len(payload), "pages": paginas, "copies": spec.copies}
 
 
 @app.post("/receipt/{printer_id}", dependencies=[Depends(auth)])

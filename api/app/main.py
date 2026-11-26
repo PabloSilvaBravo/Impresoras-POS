@@ -3,6 +3,7 @@ import os
 from typing import Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import ipp_client, ted_extractor
@@ -101,6 +102,8 @@ async def print_raw(printer_id: str, body: RawPayload) -> dict:
 
 
 PDF_MAX_BYTES = 8 * 1024 * 1024
+ESPERA_IMPRESORA_S = 25.0
+_esperando: set = set()   # escrituras que siguen esperando a la impresora (se guarda la referencia para que no se pierdan)
 
 
 @app.post("/print-pdf/{printer_id}", dependencies=[Depends(auth)])
@@ -149,7 +152,24 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
     except Exception as e:
         logging.getLogger(__name__).exception("print-pdf: no se pudo convertir")
         raise HTTPException(500, f"No se pudo convertir el PDF: {type(e).__name__}")
-    await _manager.send(printer_id, payload)
+    if cfg.check_paper:
+        # 26-nov-2026, medido en la tienda: con la tapa abierta la POS-9200L sigue diciendo 0x18 (lista) por USB, pero no recibe datos: la escritura
+        # queda esperando y la etiqueta sale sola al cerrar la tapa. Si ya hay una esperando, esta no se manda (503: se sabe que no salió). Si esta no
+        # entra en ESPERA_IMPRESORA_S, se responde 202 waiting_printer y la escritura sigue en segundo plano: saldrá al cerrar, no hay que reenviarla.
+        lock = _manager._locks.get(printer_id)
+        if lock is not None and lock.locked():
+            raise HTTPException(503, "Impresora no lista: tapa abierta o sin papel, hay una etiqueta esperando")
+        tarea = _asyncio.create_task(_manager.send(printer_id, payload))
+        hecho, _ = await _asyncio.wait({tarea}, timeout=ESPERA_IMPRESORA_S)
+        if not hecho:
+            logging.getLogger(__name__).warning(f"print-pdf {printer_id}: la impresora no recibe hace {ESPERA_IMPRESORA_S} s; la etiqueta queda esperando")
+            _esperando.add(tarea)
+            tarea.add_done_callback(_esperando.discard)
+            return JSONResponse(status_code=202, content={"status": "waiting_printer", "pages": paginas, "copies": spec.copies,
+                "detail": "la impresora no recibe (tapa abierta o sin papel); la etiqueta sale sola al cerrarla"})
+        tarea.result()
+    else:
+        await _manager.send(printer_id, payload)
     respuesta = {"status": "printed", "bytes": len(payload), "pages": paginas, "copies": spec.copies}
     if cfg.check_paper:
         # Lo que tarda en salir el papel (unos 4 s por etiqueta a velocidad 4) y se mira de nuevo: si se acabó el papel a medias, el dashboard no la da por impresa.

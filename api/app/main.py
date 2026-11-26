@@ -143,7 +143,7 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
             logging.getLogger(__name__).warning(f"print-pdf {printer_id}: no se manda, {motivo}")
             raise HTTPException(503, f"Impresora no lista: {motivo}")
     try:
-        payload, paginas = await _asyncio.to_thread(build_pdf_label, pdf, cfg, spec.copies, spec.density, spec.speed)
+        payload, paginas = await _asyncio.to_thread(build_pdf_label, pdf, cfg, spec.copies, spec.density, spec.speed, spec.invert_blocks, spec.threshold)
     except ValueError as e:
         raise HTTPException(422, str(e))
     except Exception as e:

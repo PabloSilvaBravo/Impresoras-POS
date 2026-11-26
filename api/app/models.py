@@ -79,6 +79,10 @@ class PdfLabelSpec(BaseModel):
     copies: int = Field(1, ge=1, le=10)
     density: int | None = Field(None, ge=0, le=15)
     speed: int | None = Field(None, ge=1, le=6)
+    # 26-nov-2026: para Blue. invert_blocks: las franjas negras grandes salen como recuadro con letra negra (la térmica las imprime grises);
+    # threshold: gris bajo el cual se imprime (más alto = letra delgada más gruesa). Sin ellos, como antes.
+    invert_blocks: bool = False
+    threshold: int | None = Field(None, ge=100, le=240)
 
 
 class RawPayload(BaseModel):

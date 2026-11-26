@@ -9,6 +9,22 @@ from .config import PrinterConfig
 log = logging.getLogger(__name__)
 
 
+def resolver_dispositivo(device: str) -> str:
+    """26-nov-2026: un device «mdl:XP-410B» se busca por el modelo que la impresora dice por USB (IEEE 1284, /sys/class/usbmisc/lpN), sin
+    regla udev ni sudo: la encuentra aunque cambie de puerto. Sin coincidencia, devuelve un camino que no existe. Otro device pasa tal cual."""
+    if not device.startswith("mdl:"):
+        return device
+    modelo = device[4:].strip()
+    for d in sorted(glob.glob("/sys/class/usbmisc/lp*")):
+        try:
+            ident = Path(d, "device", "ieee1284_id").read_text(errors="replace")
+        except OSError:
+            continue
+        if f"MDL:{modelo};" in ident:
+            return "/dev/usb/" + os.path.basename(d)
+    return f"/dev/usb/sin-{modelo}"
+
+
 class PrinterManager:
     """Maneja el envío de datos a cada impresora con un lock por device."""
 
@@ -27,7 +43,7 @@ class PrinterManager:
         if cfg.protocol == "ipp":
             return True
         # USB: chequeo del device file
-        return Path(cfg.device).exists()
+        return Path(resolver_dispositivo(cfg.device)).exists()
 
     async def send(self, printer_id: str, payload: bytes) -> None:
         cfg = self.printers.get(printer_id)
@@ -35,7 +51,7 @@ class PrinterManager:
             raise KeyError(printer_id)
         lock = self._locks.setdefault(printer_id, asyncio.Lock())
         async with lock:
-            await asyncio.to_thread(self._write, cfg.device, payload)
+            await asyncio.to_thread(self._write, resolver_dispositivo(cfg.device), payload)
 
     @staticmethod
     def _write(device: str, payload: bytes) -> None:

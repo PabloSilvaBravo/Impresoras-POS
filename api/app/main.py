@@ -10,7 +10,7 @@ from . import ipp_client, ted_extractor
 from .config import api_token, load_printers
 from .escpos_render import build_receipt
 from .models import DocumentSpec, LabelSpec, PdfLabelSpec, PrinterPublic, RawPayload, ReceiptSpec
-from .printers import PrinterManager, detect_usb_printers, estado_papel
+from .printers import PrinterManager, detect_usb_printers, estado_papel, resolver_dispositivo
 from .tspl import build_label
 from .tspl_pdf import build_pdf_label
 
@@ -141,7 +141,7 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
     if pdf[:5] != b"%PDF-":
         raise HTTPException(422, "No es un PDF")
     if cfg.check_paper:
-        lista, motivo = estado_papel(cfg.device)
+        lista, motivo = estado_papel(resolver_dispositivo(cfg.device))
         if not lista:
             logging.getLogger(__name__).warning(f"print-pdf {printer_id}: no se manda, {motivo}")
             raise HTTPException(503, f"Impresora no lista: {motivo}")
@@ -174,7 +174,7 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
     if cfg.check_paper:
         # Lo que tarda en salir el papel (unos 4 s por etiqueta a velocidad 4) y se mira de nuevo: si se acabó el papel a medias, el dashboard no la da por impresa.
         await _asyncio.sleep(min(20.0, 2.0 + 4.0 * paginas * spec.copies))
-        lista, motivo = estado_papel(cfg.device)
+        lista, motivo = estado_papel(resolver_dispositivo(cfg.device))
         respuesta["paper_ok_after"] = lista
         respuesta["status_after"] = motivo
     return respuesta

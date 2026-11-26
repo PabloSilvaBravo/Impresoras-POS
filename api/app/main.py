@@ -9,7 +9,7 @@ from . import ipp_client, ted_extractor
 from .config import api_token, load_printers
 from .escpos_render import build_receipt
 from .models import DocumentSpec, LabelSpec, PdfLabelSpec, PrinterPublic, RawPayload, ReceiptSpec
-from .printers import PrinterManager, detect_usb_printers
+from .printers import PrinterManager, detect_usb_printers, estado_papel
 from .tspl import build_label
 from .tspl_pdf import build_pdf_label
 
@@ -137,6 +137,11 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
         raise HTTPException(413, "El PDF pesa más de 8 MB")
     if pdf[:5] != b"%PDF-":
         raise HTTPException(422, "No es un PDF")
+    if cfg.check_paper:
+        lista, motivo = estado_papel(cfg.device)
+        if not lista:
+            logging.getLogger(__name__).warning(f"print-pdf {printer_id}: no se manda, {motivo}")
+            raise HTTPException(503, f"Impresora no lista: {motivo}")
     try:
         payload, paginas = await _asyncio.to_thread(build_pdf_label, pdf, cfg, spec.copies, spec.density, spec.speed)
     except ValueError as e:
@@ -145,7 +150,14 @@ async def print_pdf_label(printer_id: str, spec: PdfLabelSpec) -> dict:
         logging.getLogger(__name__).exception("print-pdf: no se pudo convertir")
         raise HTTPException(500, f"No se pudo convertir el PDF: {type(e).__name__}")
     await _manager.send(printer_id, payload)
-    return {"status": "printed", "bytes": len(payload), "pages": paginas, "copies": spec.copies}
+    respuesta = {"status": "printed", "bytes": len(payload), "pages": paginas, "copies": spec.copies}
+    if cfg.check_paper:
+        # Lo que tarda en salir el papel (unos 4 s por etiqueta a velocidad 4) y se mira de nuevo: si se acabó el papel a medias, el dashboard no la da por impresa.
+        await _asyncio.sleep(min(20.0, 2.0 + 4.0 * paginas * spec.copies))
+        lista, motivo = estado_papel(cfg.device)
+        respuesta["paper_ok_after"] = lista
+        respuesta["status_after"] = motivo
+    return respuesta
 
 
 @app.post("/receipt/{printer_id}", dependencies=[Depends(auth)])
